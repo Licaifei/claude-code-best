@@ -1,5 +1,6 @@
 import { c as _c } from "react/compiler-runtime";
 import React from 'react';
+import { t } from '../../../i18n';
 import { Box, Text, useTheme } from '../../../ink.js';
 import { FallbackPermissionRequest } from '../FallbackPermissionRequest.js';
 import { FilePermissionDialog } from '../FilePermissionDialog/FilePermissionDialog.js';
@@ -47,8 +48,7 @@ export function FilesystemPermissionRequest(t0) {
   }
   const userFacingName = t2;
   const isReadOnly = toolUseConfirm.tool.isReadOnly(toolUseConfirm.input);
-  const userFacingReadOrEdit = isReadOnly ? "Read" : "Edit";
-  const title = `${userFacingReadOrEdit} file`;
+  const title = isReadOnly ? t('file.readFile') : t('file.editFile');
   const parseInput = _temp;
   if (!path) {
     let t3;
