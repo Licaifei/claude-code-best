@@ -35,12 +35,24 @@ export function isRemoteSessionLocal(
 
 /**
  * Get the base URL for Claude AI based on environment.
+ * For localhost, derives the base URL from the ingress URL to preserve the
+ * actual server port instead of using the hardcoded default (4000).
  */
 export function getClaudeAiBaseUrl(
   sessionId?: string,
   ingressUrl?: string,
 ): string {
   if (isRemoteSessionLocal(sessionId, ingressUrl)) {
+    // If an ingress URL is available, extract its origin to keep the correct port.
+    // Self-hosted servers may run on any port (default 3000), not just 4000.
+    if (ingressUrl) {
+      try {
+        const parsed = new URL(ingressUrl)
+        return parsed.origin
+      } catch {
+        // Fall through to default
+      }
+    }
     return CLAUDE_AI_LOCAL_BASE_URL
   }
   if (isRemoteSessionStaging(sessionId, ingressUrl)) {
