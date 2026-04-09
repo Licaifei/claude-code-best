@@ -441,7 +441,9 @@ const WebBrowserPanelModule = feature('WEB_BROWSER_TOOL')
 /* eslint-enable @typescript-eslint/no-require-imports */
 import { IssueFlagBanner } from '../components/PromptInput/IssueFlagBanner.js';
 import { useIssueFlagBanner } from '../hooks/useIssueFlagBanner.js';
-import { CompanionSprite, CompanionFloatingBubble, MIN_COLS_FOR_FULL_SPRITE } from '../buddy/CompanionSprite.js';
+import { CompanionSprite, CompanionFloatingBubble, MIN_COLS_FOR_FULL_SPRITE, companionReservedColumns } from '../buddy/CompanionSprite.js';
+import { fireCompanionObserver } from '../buddy/observer.js';
+import { PromptLayoutContext } from '../context/promptLayoutContext.js';
 import { DevBar } from '../components/DevBar.js';
 import { UltraplanChoiceDialog } from '../components/ultraplan/UltraplanChoiceDialog.js';
 import { UltraplanLaunchDialog } from '../components/ultraplan/UltraplanLaunchDialog.js';
@@ -5353,6 +5355,7 @@ export function REPL({
   // check footerSelection: pill FOCUS (arrow-down to tasks pill) must keep
   // the sprite visible so arrow-right can navigate to it.
   const companionVisible = !toolJSX?.shouldHidePromptInput && !focusedInputDialog && !showBashesDialog;
+  const promptLayoutColumns = companionVisible && !companionNarrow ? transcriptCols - companionReservedColumns(transcriptCols, false) : transcriptCols;
 
   // In fullscreen, ALL local-jsx slash commands float in the modal slot —
   // FullscreenLayout wraps them in an absolute-positioned bottom-anchored
@@ -5499,7 +5502,9 @@ export function REPL({
             </>
           }
           bottom={
-            <Box
+            <PromptLayoutContext.Provider value={{
+              columns: promptLayoutColumns
+            }}><Box
               flexDirection={feature('BUDDY') && companionNarrow ? 'column' : 'row'}
               width="100%"
               alignItems={feature('BUDDY') && companionNarrow ? undefined : 'flex-end'}
@@ -6181,7 +6186,7 @@ export function REPL({
               {feature('BUDDY') && !(companionNarrow && isFullscreenEnvEnabled()) && companionVisible ? (
                 <CompanionSprite />
               ) : null}
-            </Box>
+            </Box></PromptLayoutContext.Provider>
           }
         />
       </MCPConnectionManager>
