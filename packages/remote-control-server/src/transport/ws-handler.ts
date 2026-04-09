@@ -44,14 +44,26 @@ function toSDKMessage(event: SessionEvent): string {
       msg = { type: "control_response", response: existingResponse };
     } else {
       const updatedInput = payload?.updated_input as Record<string, unknown> | undefined;
+      const updatedPermissions = payload?.updated_permissions as Record<string, unknown>[] | undefined;
+      const feedbackMessage = payload?.message as string | undefined;
       msg = {
         type: "control_response",
         response: {
           subtype: approved ? "success" : "error",
           request_id: payload?.request_id ?? "",
           ...(approved
-            ? { response: { behavior: "allow" as const, ...(updatedInput ? { updatedInput } : {}) } }
-            : { error: "Permission denied by user", response: { behavior: "deny" as const } }),
+            ? {
+                response: {
+                  behavior: "allow" as const,
+                  ...(updatedInput ? { updatedInput } : {}),
+                  ...(updatedPermissions ? { updatedPermissions } : {}),
+                },
+              }
+            : {
+                error: "Permission denied by user",
+                response: { behavior: "deny" as const },
+                ...(feedbackMessage ? { message: feedbackMessage } : {}),
+              }),
         },
       };
     }

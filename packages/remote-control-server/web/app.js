@@ -4,7 +4,7 @@
  */
 import { getUuid, setUuid, apiBind, apiFetchSessions, apiFetchAllSessions, apiFetchEnvironments, apiFetchSession, apiFetchSessionHistory, apiSendEvent, apiSendControl, apiInterrupt, apiCreateSession } from "./api.js";
 import { connectSSE, disconnectSSE } from "./sse.js";
-import { appendEvent, renderPermissionRequest, showLoading, isLoading } from "./render.js";
+import { appendEvent, renderPermissionRequest, showLoading, isLoading, resetReplayState, renderReplayPendingRequests } from "./render.js";
 import { esc, formatTime, statusClass } from "./utils.js";
 
 // ============================================================
@@ -70,7 +70,7 @@ async function handleRoute() {
     } catch (err) {
       console.error("Failed to bind session:", err);
       alert("Session not found or bind failed: " + err.message);
-      history.replaceState(null, "", "/code");
+      history.replaceState(null, "", "/code/");
     }
   }
 
@@ -170,7 +170,7 @@ async function renderSessionDetail(id) {
     badge.className = `status-badge status-${statusClass(session.status)}`;
   } catch (err) {
     alert("Failed to load session: " + err.message);
-    navigate("/code");
+    navigate("/code/");
     return;
   }
   document.getElementById("event-stream").innerHTML = "";
@@ -178,6 +178,7 @@ async function renderSessionDetail(id) {
   document.getElementById("permission-area").classList.add("hidden");
 
   // Load historical events before connecting to live stream
+  resetReplayState();
   let lastSeqNum = 0;
   try {
     const { events } = await apiFetchSessionHistory(id);
@@ -190,6 +191,8 @@ async function renderSessionDetail(id) {
   } catch (err) {
     console.warn("Failed to load session history:", err);
   }
+  // Re-render any still-unresolved permission prompts from history
+  renderReplayPendingRequests();
 
   connectSSE(id, appendEvent, lastSeqNum);
 }
@@ -365,11 +368,82 @@ window._submitAnswers = async function (requestId, btn) {
 };
 
 function removePermissionPrompt(btn) {
-  const prompt = btn.closest(".permission-prompt, .ask-panel");
+  const prompt = btn.closest(".permission-prompt, .ask-panel, .plan-panel");
   if (prompt) prompt.remove();
   const area = document.getElementById("permission-area");
   if (area && area.children.length === 0) area.classList.add("hidden");
 }
+
+// ============================================================
+// ExitPlanMode interactions
+// ============================================================
+
+window._selectPlanOption = function (btn, value) {
+  const panel = btn.closest(".plan-panel");
+  if (!panel) return;
+
+  // Deselect all siblings
+  panel.querySelectorAll(".plan-option").forEach((o) => o.classList.remove("selected"));
+  btn.classList.add("selected");
+  panel._selectedValue = value;
+
+  // Show/hide feedback textarea
+  const feedbackArea = panel.querySelector(".plan-feedback-area");
+  if (feedbackArea) {
+    feedbackArea.classList.toggle("visible", value === "no");
+  }
+};
+
+window._submitPlanResponse = async function (requestId, btn) {
+  const panel = btn.closest(".plan-panel");
+  if (!panel) return;
+
+  const selectedValue = panel._selectedValue;
+  if (!selectedValue) {
+    alert("Please select an option first.");
+    return;
+  }
+
+  btn.disabled = true;
+
+  try {
+    if (selectedValue === "no") {
+      // Rejection with optional feedback
+      const feedbackInput = panel.querySelector(".plan-feedback-input");
+      const feedback = feedbackInput ? feedbackInput.value.trim() : "";
+      await apiSendControl(currentSessionId, {
+        type: "permission_response",
+        approved: false,
+        request_id: requestId,
+        ...(feedback ? { message: feedback } : {}),
+      });
+      removePermissionPrompt(btn);
+    } else {
+      // Approval with permission mode
+      const modeMap = {
+        "yes-accept-edits": "acceptEdits",
+        "yes-default": "default",
+      };
+      const mode = modeMap[selectedValue] || "default";
+      const planContent = panel._planContent || "";
+
+      await apiSendControl(currentSessionId, {
+        type: "permission_response",
+        approved: true,
+        request_id: requestId,
+        ...(planContent ? { updated_input: { plan: planContent } } : {}),
+        updated_permissions: [
+          { type: "setMode", mode, destination: "session" },
+        ],
+      });
+      removePermissionPrompt(btn);
+      showLoading();
+    }
+  } catch (err) {
+    alert("Failed to submit: " + err.message);
+    btn.disabled = false;
+  }
+};
 
 // ============================================================
 // New Session Dialog
@@ -486,7 +560,7 @@ function setupIdentityPanel() {
               if (importedUuid) {
                 setUuid(importedUuid);
                 panel.classList.add("hidden");
-                navigate("/code");
+                navigate("/code/");
                 renderDashboard();
                 return;
               }
@@ -495,7 +569,7 @@ function setupIdentityPanel() {
               if (code.data.length >= 32) {
                 setUuid(code.data);
                 panel.classList.add("hidden");
-                navigate("/code");
+                navigate("/code/");
                 renderDashboard();
                 return;
               }

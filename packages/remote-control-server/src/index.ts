@@ -41,8 +41,9 @@ const stripCodePrefix = (p: string) => p.replace(/^\/code/, "");
 
 // Serve all static files under /code/* from web/ directory
 app.use("/code/*", serveStatic({ root: webDir, rewriteRequestPath: stripCodePrefix }));
-// /code and /code/:sessionId — SPA fallback
+// /code, /code/, and /code/:sessionId — SPA fallback
 app.get("/code", serveStatic({ root: webDir, path: "index.html" }));
+app.get("/code/", serveStatic({ root: webDir, path: "index.html" }));
 app.get("/code/:sessionId", serveStatic({ root: webDir, path: "index.html" }));
 
 // v1 Environment routes

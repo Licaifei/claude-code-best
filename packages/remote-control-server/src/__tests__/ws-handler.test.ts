@@ -374,6 +374,59 @@ describe("ws-handler", () => {
       expect(lastMsg.response.response.updatedInput).toEqual({ cmd: "ls -la" });
     });
 
+    test("permission_response with updated_permissions", () => {
+      const bus = getEventBus("up1");
+      const ws = createMockWs();
+      handleWebSocketOpen(ws, "up1");
+
+      const permissions = [{ type: "setMode", mode: "acceptEdits", destination: "session" }];
+      bus.publish({
+        id: "ep1",
+        sessionId: "up1",
+        type: "permission_response",
+        payload: {
+          approved: true,
+          request_id: "req-ep1",
+          updated_input: { plan: "my plan" },
+          updated_permissions: permissions,
+        },
+        direction: "outbound",
+      });
+
+      const sent = ws.getSentData();
+      const lastMsg = JSON.parse(sent[sent.length - 1]);
+      expect(lastMsg.type).toBe("control_response");
+      expect(lastMsg.response.subtype).toBe("success");
+      expect(lastMsg.response.response.behavior).toBe("allow");
+      expect(lastMsg.response.response.updatedInput).toEqual({ plan: "my plan" });
+      expect(lastMsg.response.response.updatedPermissions).toEqual(permissions);
+    });
+
+    test("permission_response denied with feedback message", () => {
+      const bus = getEventBus("dm1");
+      const ws = createMockWs();
+      handleWebSocketOpen(ws, "dm1");
+
+      bus.publish({
+        id: "dm1",
+        sessionId: "dm1",
+        type: "permission_response",
+        payload: {
+          approved: false,
+          request_id: "req-dm1",
+          message: "Please add more tests",
+        },
+        direction: "outbound",
+      });
+
+      const sent = ws.getSentData();
+      const lastMsg = JSON.parse(sent[sent.length - 1]);
+      expect(lastMsg.type).toBe("control_response");
+      expect(lastMsg.response.subtype).toBe("error");
+      expect(lastMsg.response.response.behavior).toBe("deny");
+      expect(lastMsg.response.message).toBe("Please add more tests");
+    });
+
     test("does not forward inbound events to WS", () => {
       const bus = getEventBus("no_in");
       const ws = createMockWs();

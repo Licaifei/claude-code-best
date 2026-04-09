@@ -7,6 +7,32 @@
 import { esc } from "./utils.js";
 
 // ============================================================
+// Replay state — tracks unresolved permission requests during history replay
+// ============================================================
+
+const replayPendingRequests = new Map();   // request_id → event data (unresolved)
+const replayRespondedRequests = new Set(); // request_ids that have a response
+
+/** Clear replay tracking state (call before each history load) */
+export function resetReplayState() {
+  replayPendingRequests.clear();
+  replayRespondedRequests.clear();
+}
+
+/** After replay finishes, render any still-unresolved permission prompts */
+export function renderReplayPendingRequests() {
+  if (replayPendingRequests.size === 0) return;
+
+  // Sort by seqNum to maintain order
+  const sorted = [...replayPendingRequests.entries()].sort((a, b) => (a[1].seqNum || 0) - (b[1].seqNum || 0));
+  for (const [, data] of sorted) {
+    // Re-invoke appendEvent without replay flag to go through the normal interactive path
+    appendEvent(data, { replay: false });
+  }
+  replayPendingRequests.clear();
+}
+
+// ============================================================
 // Helpers
 // ============================================================
 
@@ -74,6 +100,7 @@ export function appendEvent(data, { replay = false } = {}) {
   if (/Remote Control connecting/i.test(serialized)) return;
 
   // During history replay, only render messages & tools — skip interactive/stateful events
+  // Exception: unresolved permission/control requests are re-shown as pending prompts.
   if (replay) {
     let histEl;
     switch (type) {
@@ -95,8 +122,28 @@ export function appendEvent(data, { replay = false } = {}) {
       case "error":
         histEl = renderSystemMessage(`Error: ${payload.message || payload.content || "Unknown error"}`);
         break;
-      // Skip: partial_assistant, result, control_request, control_response,
-      //       permission_response, status, interrupt, system, user inbound echoes
+      case "control_request":
+      case "permission_request":
+        // Track unanswered permission/control requests for replay
+        if (payload.request && payload.request.subtype === "can_use_tool" && direction === "inbound") {
+          const rid = payload.request_id || data.id;
+          if (rid && !replayRespondedRequests.has(rid)) {
+            replayPendingRequests.set(rid, data);
+          }
+        }
+        return;
+      case "control_response":
+      case "permission_response":
+        // Mark the corresponding request as resolved
+        {
+          const respRid = payload.request_id;
+          if (respRid) {
+            replayRespondedRequests.add(respRid);
+            replayPendingRequests.delete(respRid);
+          }
+        }
+        return;
+      // Skip: partial_assistant, result, status, interrupt, system, user inbound echoes
       default:
         return;
     }
@@ -148,6 +195,12 @@ export function appendEvent(data, { replay = false } = {}) {
         const toolInput = payload.request.input || payload.request.tool_input || {};
         if (toolName === "AskUserQuestion") {
           el = renderAskUserQuestion({
+            request_id: payload.request_id || data.id,
+            tool_input: toolInput,
+            description: payload.request.description || "",
+          });
+        } else if (toolName === "ExitPlanMode") {
+          el = renderExitPlanMode({
             request_id: payload.request_id || data.id,
             tool_input: toolInput,
             description: payload.request.description || "",
@@ -374,6 +427,70 @@ export function renderAskUserQuestion(payload) {
   // Track selected options and store original questions for answer mapping
   el._answers = {};
   el._questions = questions;
+
+  return renderSystemMessage("Waiting for your response...");
+}
+
+export function renderExitPlanMode(payload) {
+  const requestId = payload.request_id || payload.id || "";
+  const toolInput = payload.tool_input || {};
+  const description = payload.description || "";
+  const planContent = toolInput.plan || "";
+
+  const area = document.getElementById("permission-area");
+  area.classList.remove("hidden");
+
+  const el = document.createElement("div");
+  el.className = "plan-panel";
+  el.dataset.requestId = requestId;
+
+  const isEmpty = !planContent || !planContent.trim();
+
+  if (isEmpty) {
+    el.innerHTML = `
+      <div class="plan-title">Exit plan mode?</div>
+      <div class="plan-options">
+        <button class="plan-option" data-value="yes-default" onclick="window._selectPlanOption(this, 'yes-default')">
+          <span class="plan-option-label">Yes</span>
+        </button>
+        <button class="plan-option" data-value="no" onclick="window._selectPlanOption(this, 'no')">
+          <span class="plan-option-label">No</span>
+        </button>
+      </div>
+      <div class="plan-actions">
+        <button class="btn-plan-submit" onclick="window._submitPlanResponse('${esc(requestId)}', this)">Submit</button>
+      </div>`;
+  } else {
+    el.innerHTML = `
+      <div class="plan-title">Ready to code?</div>
+      <div class="plan-content">${formatAssistantContent(planContent)}</div>
+      <div class="plan-options">
+        <button class="plan-option" data-value="yes-accept-edits" onclick="window._selectPlanOption(this, 'yes-accept-edits')">
+          <span class="plan-option-label">Yes, auto-accept edits</span>
+          <span class="plan-option-desc">Approve plan and auto-accept file edits</span>
+        </button>
+        <button class="plan-option" data-value="yes-default" onclick="window._selectPlanOption(this, 'yes-default')">
+          <span class="plan-option-label">Yes, manually approve edits</span>
+          <span class="plan-option-desc">Approve plan but confirm each edit</span>
+        </button>
+        <button class="plan-option" data-value="no" onclick="window._selectPlanOption(this, 'no')">
+          <span class="plan-option-label">No, keep planning</span>
+          <span class="plan-option-desc">Provide feedback to refine the plan</span>
+        </button>
+      </div>
+      <div class="plan-feedback-area" data-for="no">
+        <textarea class="plan-feedback-input" placeholder="Tell Claude what to change..."></textarea>
+      </div>
+      <div class="plan-actions">
+        <button class="btn-plan-submit" onclick="window._submitPlanResponse('${esc(requestId)}', this)">Submit</button>
+      </div>`;
+  }
+
+  area.appendChild(el);
+
+  el._selectedValue = null;
+  el._planContent = planContent;
+  el._isEmpty = isEmpty;
 
   return renderSystemMessage("Waiting for your response...");
 }
