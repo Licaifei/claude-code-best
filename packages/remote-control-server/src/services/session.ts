@@ -5,6 +5,7 @@ import {
   storeListSessions,
   storeListSessionsByUsername,
   storeListSessionsByEnvironment,
+  storeListSessionsByOwnerUuid,
 } from "../store";
 import { removeEventBus } from "../transport/event-bus";
 import type { CreateSessionRequest, CreateCodeSessionRequest, SessionResponse, SessionSummaryResponse } from "../types/api";
@@ -87,6 +88,10 @@ function toSummaryResponse(row: { id: string; title: string | null; status: stri
 
 export function listSessionSummaries(): SessionSummaryResponse[] {
   return storeListSessions().map(toSummaryResponse);
+}
+
+export function listSessionSummariesByOwnerUuid(uuid: string): SessionSummaryResponse[] {
+  return storeListSessionsByOwnerUuid(uuid).map(toSummaryResponse);
 }
 
 export function listSessionSummariesByUsername(username: string): SessionSummaryResponse[] {

@@ -83,6 +83,12 @@ export function getRemoteSessionUrl(
     require('../bridge/sessionIdCompat.js') as typeof import('../bridge/sessionIdCompat.js')
   /* eslint-enable @typescript-eslint/no-require-imports */
   const compatId = toCompatSessionId(sessionId)
+  // Use CLAUDE_BRIDGE_BASE_URL from env if available, otherwise fall back to default logic
+  const bridgeBaseUrl = process.env.CLAUDE_BRIDGE_BASE_URL
+  if (bridgeBaseUrl) {
+    const base = bridgeBaseUrl.replace(/\/+$/, '')
+    return `${base}/code/${compatId}`
+  }
   const baseUrl = getClaudeAiBaseUrl(compatId, ingressUrl)
   return `${baseUrl}/code/${compatId}`
 }

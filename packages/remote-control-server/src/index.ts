@@ -53,7 +53,9 @@ app.route("/v1/environments", v1EnvironmentsWork);
 // v1 Session routes
 app.route("/v1/sessions", v1Sessions);
 
-// v1 Session Ingress (WebSocket)
+// Session Ingress (WebSocket) — mounted at both /v1 and /v2 so the bridge
+// client's buildSdkUrl works with or without an Envoy proxy rewriting /v1→/v2.
+app.route("/v1/session_ingress", v1SessionIngress);
 app.route("/v2/session_ingress", v1SessionIngress);
 
 // v2 Code Sessions routes

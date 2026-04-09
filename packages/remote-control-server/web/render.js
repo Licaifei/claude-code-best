@@ -5,6 +5,7 @@
  */
 
 import { esc } from "./utils.js";
+import { processAssistantEvent } from "./task-panel.js";
 
 // ============================================================
 // Replay state — tracks unresolved permission requests during history replay
@@ -111,6 +112,7 @@ export function appendEvent(data, { replay = false } = {}) {
         {
           const text = extractText(payload);
           if (text && text.trim()) histEl = renderAssistantMessage(payload);
+          processAssistantEvent(payload);
         }
         break;
       case "tool_use":
@@ -170,11 +172,10 @@ export function appendEvent(data, { replay = false } = {}) {
       return;
     case "assistant":
       removeLoading();
-      // Skip empty assistant messages
       {
         const text = extractText(payload);
-        if (!text || !text.trim()) return;
-        el = renderAssistantMessage(payload);
+        if (text && text.trim()) el = renderAssistantMessage(payload);
+        processAssistantEvent(payload);
       }
       break;
     case "result":

@@ -506,7 +506,7 @@ describe("Web Session Routes", () => {
     expect(res.status).toBe(401);
   });
 
-  test("GET /web/sessions/all — lists all sessions", async () => {
+  test("GET /web/sessions/all — lists only sessions owned by requesting UUID", async () => {
     // Create 2 sessions via different users
     await app.request("/web/sessions?uuid=user-1", {
       method: "POST",
@@ -522,7 +522,7 @@ describe("Web Session Routes", () => {
     const allRes = await app.request("/web/sessions/all?uuid=user-1");
     expect(allRes.status).toBe(200);
     const sessions = await allRes.json();
-    expect(sessions).toHaveLength(2);
+    expect(sessions).toHaveLength(1); // only user-1's session, not user-2's
   });
 
   test("GET /web/sessions/:id — returns owned session", async () => {

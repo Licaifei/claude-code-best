@@ -1,8 +1,9 @@
 import { Hono } from "hono";
 import { uuidAuth } from "../../auth/middleware";
-import { listSessionSummaries, getSession, createSession } from "../../services/session";
+import { getSession, createSession } from "../../services/session";
 import { storeListSessionsByOwnerUuid, storeIsSessionOwner, storeBindSession } from "../../store";
 import { createWorkItem } from "../../services/work-dispatch";
+import { listSessionSummariesByOwnerUuid } from "../../services/session";
 import { createSSEStream } from "../../transport/sse-writer";
 import { getEventBus } from "../../transport/event-bus";
 
@@ -41,9 +42,10 @@ app.get("/sessions", uuidAuth, async (c) => {
   return c.json(sessions, 200);
 });
 
-/** GET /web/sessions/all — List ALL sessions (for dashboard discovery, no UUID filter) */
+/** GET /web/sessions/all — List sessions owned by the requesting UUID (unowned sessions excluded) */
 app.get("/sessions/all", uuidAuth, async (c) => {
-  const sessions = listSessionSummaries();
+  const uuid = c.get("uuid");
+  const sessions = listSessionSummariesByOwnerUuid(uuid);
   return c.json(sessions, 200);
 });
 

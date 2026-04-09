@@ -5,6 +5,7 @@
 import { getUuid, setUuid, apiBind, apiFetchSessions, apiFetchAllSessions, apiFetchEnvironments, apiFetchSession, apiFetchSessionHistory, apiSendEvent, apiSendControl, apiInterrupt, apiCreateSession } from "./api.js";
 import { connectSSE, disconnectSSE } from "./sse.js";
 import { appendEvent, renderPermissionRequest, showLoading, isLoading, resetReplayState, renderReplayPendingRequests } from "./render.js";
+import { initTaskPanel, toggleTaskPanel, resetTaskState } from "./task-panel.js";
 import { esc, formatTime, statusClass } from "./utils.js";
 
 // ============================================================
@@ -159,6 +160,12 @@ function stopDashboardRefresh() {
 
 async function renderSessionDetail(id) {
   currentSessionId = id;
+
+  // Reset task state for new session and init panel
+  resetTaskState();
+  const taskPanelEl = document.getElementById("task-panel");
+  if (taskPanelEl) initTaskPanel(taskPanelEl);
+
   try {
     const session = await apiFetchSession(id);
     document.getElementById("session-title").textContent = session.title || session.id;
@@ -587,6 +594,18 @@ function setupIdentityPanel() {
 }
 
 // ============================================================
+// Task Panel Toggle
+// ============================================================
+
+function setupTaskPanelToggle() {
+  window.__toggleTaskPanel = toggleTaskPanel;
+  const toggleBtn = document.getElementById("task-panel-toggle");
+  if (toggleBtn) {
+    toggleBtn.addEventListener("click", () => toggleTaskPanel());
+  }
+}
+
+// ============================================================
 // Init
 // ============================================================
 
@@ -594,5 +613,6 @@ document.addEventListener("DOMContentLoaded", () => {
   setupControlBar();
   setupNewSessionDialog();
   setupIdentityPanel();
+  setupTaskPanelToggle();
   handleRoute();
 });
