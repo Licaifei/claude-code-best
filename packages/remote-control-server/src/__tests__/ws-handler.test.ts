@@ -214,6 +214,206 @@ describe("ws-handler", () => {
     });
   });
 
+  describe("toSDKMessage (via handleWebSocketOpen outbound delivery)", () => {
+    test("converts permission_response with approved=true", () => {
+      const bus = getEventBus("pr1");
+      const ws = createMockWs();
+      handleWebSocketOpen(ws, "pr1");
+
+      bus.publish({
+        id: "e1",
+        sessionId: "pr1",
+        type: "permission_response",
+        payload: { approved: true, request_id: "req1" },
+        direction: "outbound",
+      });
+
+      const sent = ws.getSentData();
+      const lastMsg = JSON.parse(sent[sent.length - 1]);
+      expect(lastMsg.type).toBe("control_response");
+      expect(lastMsg.response.subtype).toBe("success");
+      expect(lastMsg.response.request_id).toBe("req1");
+      expect(lastMsg.response.response.behavior).toBe("allow");
+    });
+
+    test("converts permission_response with approved=false", () => {
+      const bus = getEventBus("pr2");
+      const ws = createMockWs();
+      handleWebSocketOpen(ws, "pr2");
+
+      bus.publish({
+        id: "e2",
+        sessionId: "pr2",
+        type: "permission_response",
+        payload: { approved: false, request_id: "req2" },
+        direction: "outbound",
+      });
+
+      const sent = ws.getSentData();
+      const lastMsg = JSON.parse(sent[sent.length - 1]);
+      expect(lastMsg.type).toBe("control_response");
+      expect(lastMsg.response.subtype).toBe("error");
+      expect(lastMsg.response.error).toBe("Permission denied by user");
+      expect(lastMsg.response.response.behavior).toBe("deny");
+    });
+
+    test("converts permission_response with existing response object", () => {
+      const bus = getEventBus("pr3");
+      const ws = createMockWs();
+      handleWebSocketOpen(ws, "pr3");
+
+      bus.publish({
+        id: "e3",
+        sessionId: "pr3",
+        type: "control_response",
+        payload: { response: { subtype: "success", data: "custom" } },
+        direction: "outbound",
+      });
+
+      const sent = ws.getSentData();
+      const lastMsg = JSON.parse(sent[sent.length - 1]);
+      expect(lastMsg.type).toBe("control_response");
+      expect(lastMsg.response.subtype).toBe("success");
+      expect(lastMsg.response.data).toBe("custom");
+    });
+
+    test("converts interrupt event", () => {
+      const bus = getEventBus("int1");
+      const ws = createMockWs();
+      handleWebSocketOpen(ws, "int1");
+
+      bus.publish({
+        id: "e4",
+        sessionId: "int1",
+        type: "interrupt",
+        payload: { action: "interrupt" },
+        direction: "outbound",
+      });
+
+      const sent = ws.getSentData();
+      const lastMsg = JSON.parse(sent[sent.length - 1]);
+      expect(lastMsg.type).toBe("control_request");
+      expect(lastMsg.request_id).toBe("e4");
+      expect(lastMsg.request.subtype).toBe("interrupt");
+    });
+
+    test("converts control_request event", () => {
+      const bus = getEventBus("cr1");
+      const ws = createMockWs();
+      handleWebSocketOpen(ws, "cr1");
+
+      bus.publish({
+        id: "e5",
+        sessionId: "cr1",
+        type: "control_request",
+        payload: { request_id: "req5", request: { subtype: "permission", tool_name: "Bash" } },
+        direction: "outbound",
+      });
+
+      const sent = ws.getSentData();
+      const lastMsg = JSON.parse(sent[sent.length - 1]);
+      expect(lastMsg.type).toBe("control_request");
+      expect(lastMsg.request_id).toBe("req5");
+      expect(lastMsg.request.subtype).toBe("permission");
+    });
+
+    test("converts user_message event type", () => {
+      const bus = getEventBus("um1");
+      const ws = createMockWs();
+      handleWebSocketOpen(ws, "um1");
+
+      bus.publish({
+        id: "e6",
+        sessionId: "um1",
+        type: "user_message",
+        payload: { content: "hello world" },
+        direction: "outbound",
+      });
+
+      const sent = ws.getSentData();
+      const lastMsg = JSON.parse(sent[sent.length - 1]);
+      expect(lastMsg.type).toBe("user");
+      expect(lastMsg.message.content).toBe("hello world");
+    });
+
+    test("converts generic event type", () => {
+      const bus = getEventBus("gen1");
+      const ws = createMockWs();
+      handleWebSocketOpen(ws, "gen1");
+
+      bus.publish({
+        id: "e7",
+        sessionId: "gen1",
+        type: "status",
+        payload: { state: "running" },
+        direction: "outbound",
+      });
+
+      const sent = ws.getSentData();
+      const lastMsg = JSON.parse(sent[sent.length - 1]);
+      expect(lastMsg.type).toBe("status");
+      expect(lastMsg.message).toEqual({ state: "running" });
+    });
+
+    test("permission_response with updated_input", () => {
+      const bus = getEventBus("ui1");
+      const ws = createMockWs();
+      handleWebSocketOpen(ws, "ui1");
+
+      bus.publish({
+        id: "e8",
+        sessionId: "ui1",
+        type: "permission_response",
+        payload: { approved: true, request_id: "req8", updated_input: { cmd: "ls -la" } },
+        direction: "outbound",
+      });
+
+      const sent = ws.getSentData();
+      const lastMsg = JSON.parse(sent[sent.length - 1]);
+      expect(lastMsg.response.response.behavior).toBe("allow");
+      expect(lastMsg.response.response.updatedInput).toEqual({ cmd: "ls -la" });
+    });
+
+    test("does not forward inbound events to WS", () => {
+      const bus = getEventBus("no_in");
+      const ws = createMockWs();
+      handleWebSocketOpen(ws, "no_in");
+
+      bus.publish({
+        id: "e9",
+        sessionId: "no_in",
+        type: "assistant",
+        payload: { content: "reply" },
+        direction: "inbound",
+      });
+
+      // Only replayed events, no new inbound delivery
+      const sent = ws.getSentData();
+      // No outbound events were published, so only replay (if any)
+      // Since the bus was fresh, no replay
+      expect(sent).toHaveLength(0);
+    });
+
+    test("control_request falls back to payload when no request field", () => {
+      const bus = getEventBus("cf1");
+      const ws = createMockWs();
+      handleWebSocketOpen(ws, "cf1");
+
+      bus.publish({
+        id: "e10",
+        sessionId: "cf1",
+        type: "control_request",
+        payload: { request_id: "req10", subtype: "custom", data: "test" },
+        direction: "outbound",
+      });
+
+      const sent = ws.getSentData();
+      const lastMsg = JSON.parse(sent[sent.length - 1]);
+      expect(lastMsg.type).toBe("control_request");
+      expect(lastMsg.request_id).toBe("req10");
+    });
+  });
+
   describe("closeAllConnections", () => {
     test("closes all active connections", () => {
       const ws1 = createMockWs();

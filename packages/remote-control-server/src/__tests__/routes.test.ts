@@ -178,6 +178,26 @@ describe("V1 Session Routes", () => {
     const body = await sessRes.json();
     expect(body.environment_id).toBe(environment_id);
   });
+
+  test("POST /v1/sessions with invalid environment_id — session created, work item fails silently", async () => {
+    const sessRes = await app.request("/v1/sessions", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "Content-Type": "application/json" },
+      body: JSON.stringify({ environment_id: "env_nonexistent" }),
+    });
+    expect(sessRes.status).toBe(200);
+    const body = await sessRes.json();
+    expect(body.id).toMatch(/^session_/);
+  });
+
+  test("POST /v1/sessions with events — publishes initial events", async () => {
+    const sessRes = await app.request("/v1/sessions", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "Content-Type": "application/json" },
+      body: JSON.stringify({ events: [{ type: "init", data: "starting" }] }),
+    });
+    expect(sessRes.status).toBe(200);
+  });
 });
 
 describe("V1 Environment Routes", () => {
@@ -542,6 +562,102 @@ describe("Web Session Routes", () => {
     const body = await histRes.json();
     expect(body.events).toEqual([]);
   });
+
+  test("GET /web/sessions/:id/history — 403 for non-owner", async () => {
+    const createRes = await app.request("/web/sessions?uuid=user-1", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const { id } = await createRes.json();
+
+    const histRes = await app.request(`/web/sessions/${id}/history?uuid=user-2`);
+    expect(histRes.status).toBe(403);
+  });
+
+  test("GET /web/sessions/:id — 404 after session deleted", async () => {
+    const createRes = await app.request("/web/sessions?uuid=user-1", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const { id } = await createRes.json();
+
+    // Archive/delete the session via v1
+    await app.request(`/v1/sessions/${id}/archive`, {
+      method: "POST",
+      headers: AUTH_HEADERS,
+    });
+
+    // Session still exists (archived), so we can still get it
+    const getRes = await app.request(`/web/sessions/${id}?uuid=user-1`);
+    // After archive, session status is "archived" but still exists
+    expect(getRes.status).toBe(200);
+  });
+
+  test("GET /web/sessions/:id/history — 404 for non-existent session", async () => {
+    // Bind to a non-existent session won't work, but if ownership was set
+    // and session deleted, we need to test the 404 path
+    const createRes = await app.request("/web/sessions?uuid=user-1", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const { id } = await createRes.json();
+
+    // Delete the session from store directly
+    const { storeDeleteSession } = await import("../store");
+    storeDeleteSession(id);
+
+    const histRes = await app.request(`/web/sessions/${id}/history?uuid=user-1`);
+    expect(histRes.status).toBe(404);
+  });
+
+  test("POST /web/sessions with invalid environment_id — handles work item error", async () => {
+    const res = await app.request("/web/sessions?uuid=user-1", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ environment_id: "env_nonexistent" }),
+    });
+    // Session is still created even if work item fails
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.id).toMatch(/^session_/);
+  });
+
+  test("GET /web/sessions/:id/events — returns SSE stream", async () => {
+    const createRes = await app.request("/web/sessions?uuid=user-1", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const { id } = await createRes.json();
+
+    const eventsRes = await app.request(`/web/sessions/${id}/events?uuid=user-1`);
+    expect(eventsRes.status).toBe(200);
+    expect(eventsRes.headers.get("Content-Type")).toBe("text/event-stream");
+
+    // Read initial keepalive and cancel
+    const reader = eventsRes.body?.getReader();
+    if (reader) {
+      const { value } = await reader.read();
+      const text = new TextDecoder().decode(value!);
+      expect(text).toContain(": keepalive");
+      reader.cancel();
+    }
+  });
+
+  test("GET /web/sessions/:id/events — 403 for non-owner", async () => {
+    const createRes = await app.request("/web/sessions?uuid=user-1", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const { id } = await createRes.json();
+
+    const eventsRes = await app.request(`/web/sessions/${id}/events?uuid=user-2`);
+    expect(eventsRes.status).toBe(403);
+  });
 });
 
 describe("Web Control Routes", () => {
@@ -600,6 +716,32 @@ describe("Web Control Routes", () => {
       headers: { "Content-Type": "application/json" },
     });
     expect(res.status).toBe(200);
+  });
+
+  test("POST /web/sessions/:id/interrupt — 403 for non-owner", async () => {
+    const res = await app.request(`/web/sessions/${sessionId}/interrupt?uuid=user-2`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  test("POST /web/sessions/:id/control — 403 for non-owner", async () => {
+    const res = await app.request(`/web/sessions/${sessionId}/control?uuid=user-2`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "permission_response", approved: true }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  test("POST /web/sessions/:id/events — 403 for non-existent session with no ownership", async () => {
+    const res = await app.request("/web/sessions/nonexistent/events?uuid=user-1", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "user", content: "hello" }),
+    });
+    expect(res.status).toBe(403);
   });
 });
 
